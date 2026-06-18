@@ -49,7 +49,7 @@ StS2 + STS2MCP mod ──HTTP(GET)──▶ bridge ──prompt──▶ claude 
   `http://127.0.0.1:15526/api/v1/singleplayer`. The bridge issues **GET reads
   only** — it has no code path that can POST a game action.
 - The bridge detects owned decision screens by `state_type`, treats combat and
-  transitions as no-ops, **debounces ~1.5s** and **de-dupes** via a stable
+  transitions as no-ops, **debounces** and **de-dupes** via a stable
   per-screen signature so the model fires exactly once per decision.
 - It injects the **exact card/relic text** (base + upgraded) for whatever's on
   screen, joined from a local dataset by a normalized id key, and feeds back the
@@ -60,9 +60,9 @@ StS2 + STS2MCP mod ──HTTP(GET)──▶ bridge ──prompt──▶ claude 
 
 ---
 
-## Setup
+## Manual setup (the `install.bat` above does all of this for you)
 
-### 1. Install the STS2MCP bridge mod (you said this isn't installed yet)
+### 1. Install the STS2MCP bridge mod
 1. Get it from https://github.com/Gennadiyev/STS2MCP (or its Nexus Mods page).
 2. Follow its README to drop the mod (`STS2_MCP.dll` + manifest) into the StS2
    `mods/` folder and enable it in-game (Settings ▸ Mods).
@@ -81,7 +81,7 @@ StS2 + STS2MCP mod ──HTTP(GET)──▶ bridge ──prompt──▶ claude 
 
 ### 2. Python environment
 ```powershell
-cd C:\Users\blake\sts2-advisor
+cd sts2-advisor          # the folder you cloned/unzipped
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -175,7 +175,7 @@ Tuning knobs live under `autostart:` in `config.yaml` (`check_interval_s`,
 | Knob | Meaning |
 |------|---------|
 | `bridge.base_url` / `poll_interval_s` | STS2MCP location and poll cadence |
-| `debounce.settle_s` | how long a screen must hold steady before firing (~1.5s) |
+| `debounce.settle_s` | how long a screen must hold steady before firing (~0.5s) |
 | `model.default` / `model.per_screen` | tiered routing (Opus for boss/shop/event/relic, Sonnet for routine) |
 | `model.thinking_budget_tokens` | 0 = extended thinking off (latency) |
 | `model.recycle_after_turns` | bound warm-session context growth |
