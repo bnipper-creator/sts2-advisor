@@ -1,0 +1,14 @@
+# runtime working files
+runtime/
+*.log
+
+# fetched dataset (re-fetch with data/fetch_data.py; do not redistribute game data)
+data/cards.json
+data/relics.json
+data/version.json
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
