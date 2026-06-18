@@ -9,6 +9,24 @@ keeps a running "thesis" so advice stays coherent across a full run, and it
 
 Runs on your **Claude Code CLI subscription** (no API key).
 
+## Features
+
+- 🛡️ **Observe-only & safe** — reads game state and shows advice; it never clicks,
+  plays a card, or sends any input. The bridge is GET-only by construction.
+- 📜 **Grounded, not guessed** — injects the exact card/relic text (base + upgraded),
+  keywords, and your owned relics from a local dataset, so numbers are facts.
+- 🃏 **Deck-aware** — learns your real deck from combat and reasons about synergies
+  (e.g. a Strike-payoff power makes Strike cards better).
+- 🗺️ **Full-map routing** — reads the whole act graph and computes which fork
+  actually reaches the Elite/Treasure/Shop you want.
+- 🧠 **Run "thesis" memory** — keeps a coherent plan (locked facts + live strategy)
+  across a whole run.
+- ⚡ **Fast & tiered** — warm Claude session, Sonnet for routine screens, Opus for
+  run-defining ones (boss relics / Ancient blessings).
+- 🏆 **Knows when you win** — announces victory/defeat and resets for the next run.
+- 🪟 **Tiny overlay + auto-launch** — appears on decision screens, hides otherwise,
+  and starts/stops with the game. One-click Windows installer.
+
 ---
 
 ## 🚀 Quick start (Windows)
