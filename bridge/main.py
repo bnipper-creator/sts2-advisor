@@ -76,6 +76,9 @@ class DeckTracker:
         self._cards: list[dict] = []
         self._source = ""
         self._floor: int | None = None   # floor of the last combat snapshot
+        self._combat_best = 0             # largest pile-union seen in the current combat
+        self._combat_clean = False        # got an authoritative turn-1 capture this combat
+        self._combat_logged = False       # logged pile sizes once this combat
         self._load()
 
     # ---- persistence -----------------------------------------------------
@@ -125,23 +128,42 @@ class DeckTracker:
         player = state.get("player") or {}
         hand = player.get("hand") or []
         draw = player.get("draw_pile") or []
-        if not hand and not draw:
-            return  # not in combat / no pile data
-
-        # Snapshot only at TURN 1 of combat (discard pile still empty), before any
-        # card has been played. We include the exhaust pile so Innate/relic cards
-        # that auto-exhaust at combat start are still counted — they ARE in the deck.
-        # We DON'T snapshot later turns: a played Power (e.g. Hell Raiser) is consumed
-        # and vanishes from every pile, so it would be silently dropped. Discard being
-        # empty is the turn-1 signal (also avoids combat-generated cards polluting it).
-        discard_n = self._pile_len(player, "discard_pile", "discard_pile_count")
-        if discard_n:
-            return  # past turn 1 — deck view is incomplete; keep the turn-1 snapshot
+        discard = player.get("discard_pile") or []
         exhaust = player.get("exhaust_pile") or []
+        if not (hand or draw or discard or exhaust):
+            # Not in combat — reset per-combat tracking for the next fight.
+            self._combat_best = 0
+            self._combat_clean = False
+            self._combat_logged = False
+            return
+
+        if not self._combat_logged:
+            self._logger.info("In combat: piles hand=%d draw=%d discard=%d exhaust=%d",
+                              len(hand), len(draw), len(discard), len(exhaust))
+            self._combat_logged = True
+
+        discard_n = self._pile_len(player, "discard_pile", "discard_pile_count")
+        clean = discard_n == 0   # turn 1, nothing played yet -> authoritative deck
+
+        # Authoritative view: a clean turn 1 (Powers still in draw, nothing consumed).
+        # Fallback: if we never catch a clean turn 1 this combat (some characters
+        # auto-play on turn 1), use the LARGEST all-piles union we see so we're not
+        # perpetually blind — it may include combat-generated cards, and the staleness
+        # note flags it; the next clean turn 1 corrects it.
+        if clean:
+            src_cards = list(hand) + list(draw) + list(exhaust)
+            self._combat_clean = True
+        elif self._combat_clean:
+            return  # already have an authoritative deck this combat
+        else:
+            union = list(hand) + list(draw) + list(discard) + list(exhaust)
+            if len(union) <= self._combat_best:
+                return
+            src_cards = union
 
         counts: dict[tuple, int] = {}
         total = 0
-        for c in list(hand) + list(draw) + list(exhaust):
+        for c in src_cards:
             if isinstance(c, dict):
                 name, up = c.get("name"), bool(c.get("is_upgraded"))
             else:
@@ -151,20 +173,19 @@ class DeckTracker:
                 total += 1
         if total == 0:
             return
+        self._combat_best = max(self._combat_best, total)
         new_cards = [{"name": n, "is_upgraded": u, "count": ct}
                      for (n, u), ct in sorted(counts.items())]
         floor = (state.get("run") or {}).get("floor")
         self._floor = floor if isinstance(floor, int) else self._floor
-        src = f"observed in combat (floor {floor}, {total} cards)"
-        if new_cards != self._cards:
-            self._cards = new_cards
-            self._source = src
-            self._save()
-            self._logger.info("Deck updated in combat: %d cards (floor %s).",
-                              total, floor)
-        else:
-            self._source = src
-            self._save()
+        how = "turn 1" if clean else "approx (mid-combat)"
+        src = f"observed in combat {how} (floor {floor}, {total} cards)"
+        changed = new_cards != self._cards
+        self._cards = new_cards
+        self._source = src
+        self._save()
+        if changed:
+            self._logger.info("Deck updated %s: %d cards (floor %s).", how, total, floor)
 
     @property
     def cards(self) -> list[dict]:
