@@ -6,7 +6,15 @@ respect the current run state (character, HP, gold, relics, potions, act, floor,
 ascension) and the running thesis.
 
 --- card_reward -------------------------------------------------
-Offered cards (card_reward.cards) + usually a Skip. Decide TAKE one vs SKIP.
+Offered cards (card_reward.cards) + usually a Skip. You take EXACTLY ONE of the
+offered cards, or Skip — never more than one.
+- ONE PICK, NO COMBO-WITHIN-THE-REWARD: the other cards in THIS reward are not
+  yours unless you pick them, and you can only pick one. NEVER justify a card by
+  its synergy with ANOTHER card in the same reward (e.g. "take Poke because it
+  combos with Flatten" when both are offered — you can't have both). Judge each
+  offered card only on synergy with your EXISTING deck/relics and the run plan.
+- Commit to the single best pick now; don't defer with "reassess after seeing the
+  deck." Note real uncertainty in RISK, but still give one decisive PICK.
 - SYNERGY FIRST: before judging a card in isolation, check it against the engines
   you ALREADY own — your relics (OWNED RELICS) and your key deck cards (DECK).
   A card that FEEDS an engine you have is far better than its raw stats suggest.

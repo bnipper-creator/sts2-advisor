@@ -41,7 +41,13 @@ class RunTracker:
         act = run.get("act")
         floor = run.get("floor")
         new = False
-        if char and char != self._char:
+        if self._char is None:
+            # First observation this session. Only treat it as a NEW run if we're
+            # clearly at a run's very start (floor <= 1). A mid-run RESTART must NOT
+            # wipe the persisted deck/thesis just because we forgot the character.
+            if isinstance(floor, int) and floor <= 1:
+                new = True
+        elif char and char != self._char:
             new = True
         elif (self._floor is not None and floor is not None
               and act == 1 and floor <= 1 and self._floor > floor):
