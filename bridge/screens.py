@@ -225,8 +225,13 @@ def model_kind(state: dict, kind: str) -> str:
     """
     if kind == "card_select":
         cards = (state.get("card_select") or {}).get("cards") or []
-        run = state.get("run") or {}
-        is_boss_floor = str(run.get("state_type", "")).lower() == "boss"
-        if len(cards) >= _BOSS_GRID_THRESHOLD or is_boss_floor:
+        if len(cards) >= _BOSS_GRID_THRESHOLD or str(state.get("state_type", "")).lower() == "boss":
             return "boss_card_select"
+    if kind == "event" and is_ancient_event(state):
+        return "ancient"   # run-long blessing — route to a stronger model
     return kind
+
+
+def is_ancient_event(state: dict) -> bool:
+    """Ancient encounters (run-long Blessings) arrive as events with is_ancient."""
+    return bool((state.get("event") or {}).get("is_ancient"))

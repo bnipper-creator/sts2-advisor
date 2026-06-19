@@ -18,15 +18,35 @@ if (-not $py) {
   Write-Host "    IMPORTANT: tick 'Add python.exe to PATH' in the installer, then re-run this." -ForegroundColor Yellow
   Read-Host "Press Enter to exit"; exit 1
 }
+# Require Python >= 3.11 (the code uses 3.11+ syntax). A too-old Python would
+# "install" fine but fail later with cryptic import errors.
+$ver = (python -c "import sys;print('%d.%d'%sys.version_info[:2])").Trim()
+$mj,$mn = $ver.Split('.')
+if ([int]$mj -lt 3 -or ([int]$mj -eq 3 -and [int]$mn -lt 11)) {
+  Write-Host "`n[X] Python $ver found, but 3.11+ is required." -ForegroundColor Red
+  Write-Host "    Install 3.11+ from https://www.python.org/downloads/ (tick 'Add to PATH'), then re-run." -ForegroundColor Yellow
+  Read-Host "Press Enter to exit"; exit 1
+}
 Write-Host "`n[OK] Python: $(python --version 2>&1)" -ForegroundColor Green
 
-# 2. Claude Code CLI ---------------------------------------------------------
-$claude = Get-Command claude -ErrorAction SilentlyContinue
-if (-not $claude) {
-  Write-Host "[!] 'claude' CLI not found." -ForegroundColor Yellow
-  Write-Host "    The advisor needs Claude Code (your subscription, no API key)." -ForegroundColor Yellow
+# 1b. tkinter (the overlay needs it; not always bundled) ---------------------
+python -c "import tkinter" 2>$null
+if ($LASTEXITCODE -ne 0) {
+  Write-Host "[X] Python is missing tkinter (the overlay needs it)." -ForegroundColor Red
+  Write-Host "    Re-run the Python installer and enable 'tcl/tk and IDLE', then re-run this." -ForegroundColor Yellow
+  Read-Host "Press Enter to exit"; exit 1
+}
+Write-Host "[OK] tkinter available" -ForegroundColor Green
+
+# 2. Claude Code CLI (REQUIRED — the advisor cannot generate advice without it)
+while (-not (Get-Command claude -ErrorAction SilentlyContinue)) {
+  Write-Host "`n[X] 'claude' CLI not found on PATH." -ForegroundColor Red
+  Write-Host "    The advisor runs on Claude Code (your subscription, no API key)." -ForegroundColor Yellow
   Write-Host "    Install + sign in: https://claude.com/claude-code" -ForegroundColor Yellow
-} else {
+  $r = Read-Host "Press Enter to re-check after installing, or type 's' to skip (advisor won't give advice)"
+  if ($r -eq 's') { break }
+}
+if (Get-Command claude -ErrorAction SilentlyContinue) {
   Write-Host "[OK] Claude Code CLI: found" -ForegroundColor Green
 }
 
@@ -41,7 +61,7 @@ Write-Host "`nDownloading StS2 card/relic dataset..." -ForegroundColor Cyan
 python (Join-Path $root "data\fetch_data.py")
 
 # 5. Validate the Claude Code CLI invocation ---------------------------------
-if ($claude) {
+if (Get-Command claude -ErrorAction SilentlyContinue) {
   Write-Host "`nValidating Claude Code CLI (calls the model once)..." -ForegroundColor Cyan
   try { python -m bridge.model_client --selftest }
   catch { Write-Host "[!] Selftest issue; re-run later: python -m bridge.model_client --selftest" -ForegroundColor Yellow }

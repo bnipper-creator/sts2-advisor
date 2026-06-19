@@ -12,6 +12,7 @@ Verify launch/teardown once:  python  autostart\supervisor.py --test
 from __future__ import annotations
 
 import os
+import signal
 import socket
 import subprocess
 import sys
@@ -29,10 +30,12 @@ _CREATE_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 
 
 def _python_launcher() -> str:
-    """Prefer pythonw.exe (no console window) for the child processes."""
-    exe = Path(sys.executable)
-    cand = exe.with_name("pythonw.exe")
-    return str(cand) if cand.exists() else sys.executable
+    """On Windows prefer pythonw.exe (no console window). Elsewhere use the current
+    interpreter (python3)."""
+    if os.name == "nt":
+        cand = Path(sys.executable).with_name("pythonw.exe")
+        return str(cand) if cand.exists() else sys.executable
+    return sys.executable
 
 
 def _single_instance(port: int):
@@ -53,13 +56,21 @@ def _bridge_client(cfg: dict) -> BridgeClient:
                         timeout=b.get("request_timeout_s", 4.0))
 
 
+def _popen(args: list[str]) -> subprocess.Popen:
+    kwargs: dict = {"cwd": str(ROOT)}
+    if os.name == "nt":
+        kwargs["creationflags"] = _CREATE_NO_WINDOW
+    else:
+        # Own process group so we can kill the whole tree (incl. `claude`) on POSIX.
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(args, **kwargs)
+
+
 def _launch_children(logger) -> list[subprocess.Popen]:
     py = _python_launcher()
     logger.info("Game detected -> launching bridge + overlay (%s)", py)
-    bridge = subprocess.Popen([py, "-m", "bridge.main"], cwd=str(ROOT),
-                              creationflags=_CREATE_NO_WINDOW)
-    overlay = subprocess.Popen([py, str(ROOT / "overlay" / "overlay.py")],
-                               cwd=str(ROOT), creationflags=_CREATE_NO_WINDOW)
+    bridge = _popen([py, "-m", "bridge.main"])
+    overlay = _popen([py, str(ROOT / "overlay" / "overlay.py")])
     return [bridge, overlay]
 
 
@@ -76,7 +87,14 @@ def _stop_children(procs: list[subprocess.Popen], logger) -> None:
                            creationflags=_CREATE_NO_WINDOW,
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
-            p.terminate()
+            # Kill the process group (the child + its `claude` descendants).
+            try:
+                os.killpg(os.getpgid(p.pid), signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                try:
+                    p.terminate()
+                except OSError:
+                    pass
     for p in procs:
         try:
             p.wait(timeout=5)

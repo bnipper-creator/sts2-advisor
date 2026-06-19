@@ -53,6 +53,7 @@ class Dataset:
         self.cards: dict[str, dict] = {}
         self.relics: dict[str, dict] = {}
         self.version: str = "unknown"
+        self.fetched: str = "unknown"
 
     @classmethod
     def load(cls, data_dir: str) -> "Dataset":
@@ -63,7 +64,9 @@ class Dataset:
         meta = base / "version.json"
         if meta.exists():
             try:
-                ds.version = json.loads(meta.read_text(encoding="utf-8")).get("game_version", "unknown")
+                m = json.loads(meta.read_text(encoding="utf-8"))
+                ds.version = m.get("game_version", "unknown")
+                ds.fetched = (m.get("fetched_utc") or "unknown")[:10]
             except (ValueError, OSError):
                 pass
         return ds
@@ -93,12 +96,20 @@ class Dataset:
         return index
 
     def lookup_card(self, opt: dict) -> dict | None:
-        return self.cards.get(normalize_id(opt.get("id"))) or \
-               self.cards.get(normalize_id(opt.get("name")))
+        return self._lookup(self.cards, opt)
 
     def lookup_relic(self, opt: dict) -> dict | None:
-        return self.relics.get(normalize_id(opt.get("id"))) or \
-               self.relics.get(normalize_id(opt.get("name")))
+        return self._lookup(self.relics, opt)
+
+    @staticmethod
+    def _lookup(index: dict, opt: dict) -> dict | None:
+        # If an id is present, trust it ONLY: a present-but-unmatched id means a
+        # new/unknown entity, so we must NOT fall back to name (that would resolve a
+        # brand-new card to a same-named old one and mislead the model). Fall back to
+        # name only when there's no id at all (e.g. cards read from combat piles).
+        if opt.get("id"):
+            return index.get(normalize_id(opt.get("id")))
+        return index.get(normalize_id(opt.get("name")))
 
 
 def _reference_line(opt: dict, ds: Dataset) -> str:
@@ -230,9 +241,14 @@ def _options_block(state: dict, kind: str) -> str:
         lines.append(f"[{o.get('index')}] {o.get('label')}{up}{price}{sale}{afford}{lock}{grant}")
     extra = ""
     if kind == "event":
-        body = (state.get("event") or {}).get("body", "")
+        ev = state.get("event") or {}
+        if screens.is_ancient_event(state):
+            extra += ("\n** ANCIENT ENCOUNTER — this is a RUN-DEFINING Blessing that "
+                      "lasts the whole run. Choose the one that best fits your committed "
+                      "plan and ADD it to LOCKED. **\n")
+        body = ev.get("body", "")
         if body:
-            extra = f"\nEVENT TEXT: {body}\n"
+            extra += f"\nEVENT TEXT: {body}\n"
     if kind == "card_reward" and (state.get("card_reward") or {}).get("can_skip"):
         lines.append("[skip] Skip the reward")
     return extra + "\n".join(lines)
@@ -246,7 +262,7 @@ def _deck_text(deck_cards: list[dict], deck_source: str, ds: Dataset) -> str:
     for c in deck_cards:
         name = c.get("name", "?")
         up = c.get("is_upgraded")
-        entry = ds.lookup_card({"id": name, "name": name, "is_upgraded": up})
+        entry = ds.lookup_card({"name": name, "is_upgraded": up})  # pile cards: name only
         if entry:
             txt = _strip_bbcode(entry.get(
                 "upgrade_description" if up and entry.get("upgrade_description") else "description", ""))
@@ -280,23 +296,96 @@ def _map_text(state: dict) -> str:
             kids = ",".join(str(c[0]) for c in (n.get("children") or []) if c)
             parts.append(f"c{n.get('col')}={n.get('type')}" + (f"->[{kids}]" if kids else ""))
         lines.append(f"  r{row}: " + "; ".join(parts))
-    # Per-fork downstream reachability, computed in code so the model doesn't have
-    # to traverse the graph itself (that was producing wrong fork->route mappings).
+    # Per-fork BEST SINGLE PATH, computed in code. Reachability (below) counts every
+    # node reachable downstream, but lanes merge so that OVERSTATES what one route can
+    # collect. The best path is the actual sequence you'd take from each fork.
+    paths = _best_paths(state)
+    if paths:
+        lines.append("")
+        lines.append("IMMEDIATE FORKS (player sees these left-to-right). For each, the "
+                     "BEST SINGLE ROUTE you'd actually take to the boss — choose the "
+                     "fork whose route hits your targets, and name it by position:")
+        for p in paths:
+            seq = " -> ".join(p["path"]) if p["path"] else "(boss)"
+            tally = []
+            if p["elites"]:
+                tally.append(f"{p['elites']} Elite")
+            if p["rests"]:
+                tally.append(f"{p['rests']} Rest")
+            extra = f"  [{', '.join(tally)} on this route]" if tally else ""
+            lines.append(f"  - {p['pos']} path: {seq}{extra}")
     reach = _fork_reachability(state)
     if reach:
-        lines.append("")
-        lines.append("IMMEDIATE FORKS (player sees these left-to-right). Each shows "
-                     "what its path can STILL reach on the way to the boss — pick the "
-                     "fork whose downstream actually contains your targets:")
+        lines.append("Anywhere downstream (NOT all reachable on one route — use the "
+                     "routes above to decide):")
         for r in reach:
             summ = ", ".join(f"{cnt} {t}" for t, cnt in r["reach"]) or "boss only"
-            lines.append(f"  - {r['pos']} path -> {r['type']}  | can reach: {summ}")
+            lines.append(f"  - {r['pos']}: {summ}")
     return "\n".join(lines)
 
 
 # Order/words used when summarizing what a fork can reach.
 _REACH_ORDER = ["Elite", "Treasure", "Shop", "Merchant", "RestSite", "Unknown", "Monster"]
 _REACH_LABEL = {"RestSite": "Rest", "Unknown": "?", "Merchant": "Shop"}
+
+# Routing value of each node type for best-path selection (tunable here).
+_NODE_WEIGHTS = {
+    "Elite": 5.0, "Treasure": 3.0, "Shop": 3.0, "Merchant": 3.0,
+    "RestSite": 2.0, "Unknown": 1.5, "Monster": 0.5, "Ancient": 0.0,
+}
+
+
+def _node_value(node_type) -> float:
+    return _NODE_WEIGHTS.get(node_type, 0.5)
+
+
+def _best_paths(state: dict) -> list[dict]:
+    """For each immediate fork, find the highest-value single path to the boss
+    (DP over the DAG). Returns [{pos, type, path:[type labels...], elites, rests}]."""
+    m = state.get("map") or {}
+    index = {(n.get("col"), n.get("row")): n for n in (m.get("nodes") or [])}
+    best_val: dict = {}
+    best_next: dict = {}
+
+    def solve(key):
+        if key in best_val:
+            return best_val[key]
+        node = index.get(key)
+        if node is None:
+            return 0.0
+        kids = [(c[0], c[1]) for c in (node.get("children") or []) if c]
+        best_val[key] = 0.0   # mark visited (guards cycles)
+        best_next[key] = None
+        best = None
+        for k in kids:
+            cn = index.get(k)
+            cval = _node_value(cn.get("type")) if cn else 0.0
+            tot = cval + solve(k)
+            if best is None or tot > best:
+                best, best_next[key] = tot, k
+        best_val[key] = best or 0.0
+        return best_val[key]
+
+    out = []
+    for o in screens.extract_options(state, "map"):
+        start = (o.get("col"), o.get("row"))
+        solve(start)
+        path_types, elites, rests = [], 0, 0
+        cur, guard = start, 0
+        while cur is not None and guard < 100:
+            node = index.get(cur)
+            if node is None:
+                break
+            t = node.get("type")
+            path_types.append(_REACH_LABEL.get(t, t))
+            elites += t == "Elite"
+            rests += t == "RestSite"
+            cur = best_next.get(cur)
+            guard += 1
+        path_types.append("Boss")
+        out.append({"pos": o.get("pos_word"), "type": o.get("name"),
+                    "path": path_types, "elites": elites, "rests": rests})
+    return out
 
 
 def _fork_reachability(state: dict) -> list[dict]:
@@ -350,7 +439,8 @@ def build_payload(state: dict, kind: str, ds: Dataset, thesis_text: str,
         f"SCREEN KIND: {kind}\n\n"
         f"=== RUN STATE ===\n{_run_summary(state, ds)}\n\n"
         f"=== OPTIONS ON SCREEN ===\n{_options_block(state, kind)}\n\n"
-        f"=== REFERENCE TEXT (authoritative; numbers are base values) ===\n"
+        f"=== REFERENCE TEXT (authoritative; numbers are base values; "
+        f"dataset fetched {ds.fetched}) ===\n"
         f"{build_reference_text(state, kind, ds)}"
         f"{_keyword_glossary(state, kind)}"
         f"{map_section}"

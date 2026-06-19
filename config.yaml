@@ -33,10 +33,11 @@ model:
     map:           "sonnet"
     rest_site:     "sonnet"
     event:         "sonnet"      # most events are routine; relic-granting ones still grounded
+    ancient:       "opus"        # Ancient encounters = run-long Blessings — run-defining
     shop:          "sonnet"
     card_select:   "sonnet"      # routine removes/upgrades
     boss_card_select: "opus"     # large/important transform grids
-    relic_select:  "opus"        # boss relics / Ancient blessings — run-defining
+    relic_select:  "opus"        # boss relics — run-defining
   # Disable extended thinking for latency. See model_client.py for how this is
   # applied (env var + flags). 0 = off.
   thinking_budget_tokens: 0

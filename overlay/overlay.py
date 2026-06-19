@@ -73,6 +73,7 @@ class Overlay:
 
         self._last_mtime = 0.0
         self._visible = True
+        self._ever_seen = False   # have we ever seen a fresh heartbeat?
         self._drag = (0, 0)
 
     def _start_move(self, e):
@@ -98,10 +99,18 @@ class Overlay:
 
     def _tick(self) -> None:
         fresh = self._heartbeat_fresh()
-        if fresh and not self._visible:
+        if fresh:
+            self._ever_seen = True
+
+        # Stay visible while the advisor is live (fresh) OR on a cold start before
+        # we've ever seen it (so a manually-launched overlay shows a "waiting" hint
+        # instead of being invisible). Hide only once it was live and then went
+        # stale — i.e. the game/advisor actually closed.
+        should_show = fresh or not self._ever_seen
+        if should_show and not self._visible:
             self.root.deiconify()
             self._visible = True
-        elif not fresh and self._visible:
+        elif not should_show and self._visible:
             self.root.withdraw()
             self._visible = False
 
@@ -113,6 +122,11 @@ class Overlay:
                     self._set_text(self.advice_path.read_text(encoding="utf-8"))
             except OSError:
                 pass
+        elif not self._ever_seen:
+            self._set_text("SPIRE ORACLE\n\nWaiting for Slay the Spire 2 + the "
+                           "STS2MCP mod…\n\nStart a run — advice appears on each "
+                           "decision screen.\nNo overlay during the game? See the "
+                           "README troubleshooting section.")
 
         self.root.after(self.poll_ms, self._tick)
 

@@ -31,12 +31,13 @@ Offered cards (card_reward.cards) + usually a Skip. Decide TAKE one vs SKIP.
 The FULL ACT MAP section gives the entire graph (every row to the boss, with the
 edges between nodes) plus your current position. You CAN see the whole act — plan
 a real route, then pick the immediate node.
-- CHOOSE THE FORK BY THE "IMMEDIATE FORKS" LIST. That list (in FULL ACT MAP) is
-  computed for you: each fork shows, left-to-right, exactly what node types its
-  path can STILL reach on the way to the boss. To reach a Treasure/Elite/Shop,
-  you MUST pick a fork whose "can reach" line includes it. Do NOT trace the graph
-  yourself to decide which fork reaches what — trust this list. If the target
-  isn't under the fork you like, pick the fork that actually reaches it.
+- CHOOSE THE FORK BY THE "IMMEDIATE FORKS" LIST. For each fork that list gives the
+  BEST SINGLE ROUTE you'd actually take (a real sequence like
+  Monster → ? → Elite → Rest → Treasure → Boss) plus the Elites/Rests on THAT route.
+  This is what you can collect on one path. Pick the fork whose best route hits your
+  targets. The "Anywhere downstream" line is everything reachable across all branches
+  — you CANNOT get all of it on one path, so use it only as background, never as the
+  reason to pick a fork. Do NOT trace the graph yourself.
 - Name your pick by its LEFT-TO-RIGHT position word from that list ("left",
   "middle", "far right", etc.) + the node type. Example: "PICK: Far right path →
   Monster". NEVER use internal col/row numbers or "(col N)" in your answer — the
@@ -44,7 +45,7 @@ a real route, then pick the immediate node.
   TYPES (Elite → Rest → Treasure), never in r6/c4 coordinates.
 - col/row in the graph are for YOUR internal planning only. Lanes CRISS-CROSS — a
   path can shift columns between rows and two forks can merge later — which is why
-  you must rely on the computed reachability rather than assuming a straight lane.
+  you must rely on the precomputed routes rather than assuming a straight lane.
 - Plan to the boss: prioritize ~2 elites per act when your deck can handle them,
   and try to land a Rest right before each elite and the boss (pre-boss room is a
   rest). Trace a path through the graph that hits those.

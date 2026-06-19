@@ -69,6 +69,7 @@ class DeckTracker:
         self._logger = logger
         self._cards: list[dict] = []
         self._source = ""
+        self._floor: int | None = None   # floor of the last combat snapshot
         self._load()
 
     # ---- persistence -----------------------------------------------------
@@ -78,6 +79,7 @@ class DeckTracker:
                 data = json.loads(self._path.read_text(encoding="utf-8"))
                 self._cards = data.get("cards", [])
                 self._source = data.get("source", "")
+                self._floor = data.get("floor")
         except (ValueError, OSError):
             pass
 
@@ -85,8 +87,8 @@ class DeckTracker:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(json.dumps(
-                {"source": self._source, "cards": self._cards}, indent=2),
-                encoding="utf-8")
+                {"source": self._source, "floor": self._floor, "cards": self._cards},
+                indent=2), encoding="utf-8")
         except OSError:
             pass
 
@@ -94,6 +96,7 @@ class DeckTracker:
     def seed_starter(self, character: str | None) -> None:
         key = (character or "").replace("The ", "").strip().lower()
         starter = self._starters.get(key)
+        self._floor = None
         if starter:
             self._cards = [{"name": c["name"], "is_upgraded": False,
                             "count": int(c.get("count", 1))} for c in starter]
@@ -119,19 +122,20 @@ class DeckTracker:
         if not hand and not draw:
             return  # not in combat / no pile data
 
-        # ONLY snapshot at combat start, when the WHOLE deck is in hand + draw and
-        # no cards have been played yet. Mid-combat snapshots are unreliable:
-        # played Power cards (e.g. Hell Raiser) are consumed and vanish from every
-        # pile, so they'd be silently dropped from the deck. At combat start the
-        # discard and exhaust piles are empty.
+        # Snapshot only at TURN 1 of combat (discard pile still empty), before any
+        # card has been played. We include the exhaust pile so Innate/relic cards
+        # that auto-exhaust at combat start are still counted — they ARE in the deck.
+        # We DON'T snapshot later turns: a played Power (e.g. Hell Raiser) is consumed
+        # and vanishes from every pile, so it would be silently dropped. Discard being
+        # empty is the turn-1 signal (also avoids combat-generated cards polluting it).
         discard_n = self._pile_len(player, "discard_pile", "discard_pile_count")
-        exhaust_n = self._pile_len(player, "exhaust_pile", "exhaust_pile_count")
-        if discard_n or exhaust_n:
-            return  # mid-combat — deck view is incomplete; keep the start snapshot
+        if discard_n:
+            return  # past turn 1 — deck view is incomplete; keep the turn-1 snapshot
+        exhaust = player.get("exhaust_pile") or []
 
         counts: dict[tuple, int] = {}
         total = 0
-        for c in list(hand) + list(draw):
+        for c in list(hand) + list(draw) + list(exhaust):
             if isinstance(c, dict):
                 name, up = c.get("name"), bool(c.get("is_upgraded"))
             else:
@@ -143,16 +147,18 @@ class DeckTracker:
             return
         new_cards = [{"name": n, "is_upgraded": u, "count": ct}
                      for (n, u), ct in sorted(counts.items())]
-        floor = (state.get("run") or {}).get("floor", "?")
-        src = f"observed at combat start (floor {floor}, {total} cards)"
+        floor = (state.get("run") or {}).get("floor")
+        self._floor = floor if isinstance(floor, int) else self._floor
+        src = f"observed in combat (floor {floor}, {total} cards)"
         if new_cards != self._cards:
             self._cards = new_cards
             self._source = src
             self._save()
-            self._logger.info("Deck updated at combat start: %d cards (floor %s).",
+            self._logger.info("Deck updated in combat: %d cards (floor %s).",
                               total, floor)
         else:
             self._source = src
+            self._save()
 
     @property
     def cards(self) -> list[dict]:
@@ -160,6 +166,16 @@ class DeckTracker:
 
     @property
     def source(self) -> str:
+        return self._source
+
+    def source_with_staleness(self, current_floor) -> str:
+        """Source string plus how stale the snapshot is (cards gained/removed since
+        the last combat aren't visible — the mod only exposes the deck in combat)."""
+        if isinstance(self._floor, int) and isinstance(current_floor, int):
+            gap = current_floor - self._floor
+            if gap > 0:
+                return (f"{self._source} — last verified {gap} floor(s) ago; may be "
+                        f"missing cards gained/removed since (rewards, shops, relics)")
         return self._source
 
 
@@ -260,54 +276,67 @@ def main() -> None:
             # Bridge is up: heartbeat so the overlay shows.
             heartbeat_path.write_text(str(time.time()), encoding="utf-8")
 
-            # 2. New-run detection -> reset thesis + warm sessions + seed deck.
-            if tracker.is_new_run(state):
-                logger.info("New run detected -> resetting thesis + seeding deck.")
-                thesis_store.reset(tracker.run_key(state))
-                model.reset_sessions()
-                debouncer.reset()
-                deck.seed_starter(RunTracker._character(state))
-
-            # Run end: announce victory/defeat once, then reset for the next run.
-            if state.get("state_type") == "game_over" or state.get("game_over"):
-                if not game_over_handled:
-                    msg = _game_over_message(state)
-                    util.resolve(cfg["paths"]["advice_file"]).write_text(
-                        msg + "\n", encoding="utf-8")
-                    logger.info("Run ended: %s", msg.splitlines()[0])
-                    thesis_store.reset()
+            # Everything below can hit unexpected game state. Guard it so one bad
+            # screen logs + shows a friendly note instead of killing the advisor.
+            try:
+                # 2. New-run detection -> reset thesis + warm sessions + seed deck.
+                if tracker.is_new_run(state):
+                    logger.info("New run detected -> resetting thesis + seeding deck.")
+                    thesis_store.reset(tracker.run_key(state))
                     model.reset_sessions()
                     debouncer.reset()
-                    game_over_handled = True
-                time.sleep(poll)
-                continue
-            game_over_handled = False
+                    deck.seed_starter(RunTracker._character(state))
 
-            # Snapshot the deck whenever combat piles are visible (the only time
-            # STS2MCP exposes the deck); reused on the next decision screen.
-            deck.maybe_snapshot(state)
+                # Run end: announce victory/defeat once, then reset for the next run.
+                if state.get("state_type") == "game_over" or state.get("game_over"):
+                    if not game_over_handled:
+                        msg = _game_over_message(state)
+                        util.resolve(cfg["paths"]["advice_file"]).write_text(
+                            msg + "\n", encoding="utf-8")
+                        logger.info("Run ended: %s", msg.splitlines()[0])
+                        thesis_store.reset()
+                        model.reset_sessions()
+                        debouncer.reset()
+                        game_over_handled = True
+                    time.sleep(poll)
+                    continue
+                game_over_handled = False
 
-            # 3. Classify screen.
-            kind, is_decision = screens.classify(state)
-            if not is_decision:
-                # combat / transition / menu -> stay silent.
-                time.sleep(poll)
-                continue
+                # Snapshot the deck whenever combat piles are visible (the only time
+                # STS2MCP exposes the deck); reused on the next decision screen.
+                deck.maybe_snapshot(state)
 
-            # 4. Debounce + de-dupe.
-            sig = signature.build(state, kind)
-            debouncer.observe(sig)
-            if debouncer.should_fire(sig):
-                m_kind = screens.model_kind(state, kind)
-                alias = model.model_for(m_kind)
-                payload = grounding.build_payload(
-                    state, kind, dataset, thesis_store.format_for_prompt(),
-                    deck_cards=deck.cards, deck_source=deck.source)
-                if log_prompts:
-                    logger.info("PROMPT [%s -> %s]:\n%s", kind, alias, payload)
-                logger.info("Firing advice: %s (model=%s, sig=%s)", kind, alias, sig)
-                adv_worker.request(sig, payload, alias, kind)
-                debouncer.mark_fired(sig)
+                # 3. Classify screen.
+                kind, is_decision = screens.classify(state)
+                if not is_decision:
+                    # combat / transition / menu -> stay silent.
+                    time.sleep(poll)
+                    continue
+
+                # 4. Debounce + de-dupe.
+                sig = signature.build(state, kind)
+                debouncer.observe(sig)
+                if debouncer.should_fire(sig):
+                    m_kind = screens.model_kind(state, kind)
+                    alias = model.model_for(m_kind)
+                    payload = grounding.build_payload(
+                        state, kind, dataset, thesis_store.format_for_prompt(),
+                        deck_cards=deck.cards,
+                        deck_source=deck.source_with_staleness((state.get("run") or {}).get("floor")))
+                    if log_prompts:
+                        logger.info("PROMPT [%s -> %s]:\n%s", kind, alias, payload)
+                    logger.info("Firing advice: %s (model=%s, sig=%s)", kind, alias, sig)
+                    adv_worker.request(sig, payload, alias, kind)
+                    debouncer.mark_fired(sig)
+            except Exception:  # noqa: BLE001 - keep the advisor alive on any bad state
+                logger.exception("Error processing state (state_type=%s)",
+                                 state.get("state_type"))
+                try:
+                    util.resolve(cfg["paths"]["advice_file"]).write_text(
+                        "[ advisor ]\nHit an error on this screen — skipping it. "
+                        "See runtime/advisor.log.\n", encoding="utf-8")
+                except OSError:
+                    pass
 
             time.sleep(poll)
     except KeyboardInterrupt:

@@ -9,6 +9,9 @@ keeps a running "thesis" so advice stays coherent across a full run, and it
 
 Runs on your **Claude Code CLI subscription** (no API key).
 
+<!-- Add a screenshot at assets/overlay.png, then uncomment the next line: -->
+<!-- ![Spire Oracle overlay on the map screen](assets/overlay.png) -->
+
 ## Features
 
 - 🛡️ **Observe-only & safe** — reads game state and shows advice; it never clicks,
@@ -51,8 +54,56 @@ Then:
 If you skipped auto-launch, double-click **`start.bat`** to run it (and `stop.bat`
 to stop). The overlay only appears while StS2 is running.
 
+### macOS / Linux
+
+Same four prerequisites (StS2 + STS2MCP mod + Claude Code + Python 3.11+). On Linux
+the overlay also needs Tk: `sudo apt install python3-tk` (Debian/Ubuntu) or
+`brew install python-tk` (macOS Homebrew). Then:
+
+```bash
+bash install.sh                       # setup + dataset + checks
+./start.sh                            # run now  (stop with ./stop.sh)
+bash autostart/install_autostart.sh   # optional: launch with the game at login
+```
+
 > It is **observe-only**: it reads game state and shows advice. It never clicks,
 > never plays a card, never touches your run.
+
+---
+
+## Troubleshooting
+
+**No overlay window at all?**
+- The overlay only shows once started. If you used auto-launch, launch StS2 first.
+  If you started manually, run `start.bat`. On a cold start it shows a
+  "Waiting for Slay the Spire 2…" box — if you don't even see that, the overlay
+  process didn't start (check Python/tkinter, below).
+
+**Overlay shows "Waiting…" but never gives advice during the game?**
+1. Is the **STS2MCP mod** enabled? In a browser, open `http://127.0.0.1:15526/` —
+   you should get `{"status":"ok"}`. No response → the mod isn't running.
+2. Are you on a **decision screen** (card reward, map, shop, rest, event)? It stays
+   silent during combat and on menus by design.
+3. Check `runtime/advisor.log` for errors.
+
+**Overlay says "advisor hit an error"?**
+- It logged the details in `runtime/advisor.log` and kept running. Usually a game
+  patch changed the mod's data shape — open an issue with the log snippet.
+
+**It says "(no model output)" or never finishes thinking?**
+- The `claude` CLI isn't installed or isn't signed in. Run
+  `python -m bridge.model_client --selftest` and follow the output. Make sure
+  `claude` works on its own first.
+
+**`ModuleNotFoundError: tkinter`?**
+- Re-run the Python installer and enable **"tcl/tk and IDLE"**.
+
+**Advice references cards/numbers that look wrong?**
+- The card data may be stale (StS2 patches often). Re-run `python data/fetch_data.py`.
+- The deck can lag by one combat (the mod only exposes your deck during a fight) —
+  advice notes when the deck was "last verified N floors ago."
+
+Logs live in `runtime/advisor.log`. Delete `runtime/` to reset all state.
 
 ---
 
