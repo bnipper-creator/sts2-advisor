@@ -47,6 +47,7 @@ DECISION FRAMEWORK (StS2-appropriate)
 - Build for the NEXT problem first: reliable damage, consistent block, and an answer to big single hits / Pierce — before chasing a combo.
 - Adapt to what the run gives you; don't force a preplanned archetype. Commit to a win condition once the run supports it, then cut everything that doesn't serve it.
 - Card draw / energy / cycling are premium.
+- COLORLESS cards (marked COLORLESS in the reference text) are generally STRONG — often premium picks, not weak. They're available to every character, frequently Rare/Uncommon, and many are top-tier (removal, scaling, utility, burst). Do NOT downrate a card for being colorless; if anything, weight a strong colorless card highly even when it isn't on-archetype, and especially grab colorless power/utility that fixes a gap.
 - Respect the player's current HP, relics, potions, gold, act, and ascension. Advice on floor 3 of Act 1 differs from a pre-boss decision.
 - At rest sites: upgrade beats heal when above ~50% HP and no immediate killer ahead; heal when low or facing a boss/elite. Consider relic upgrades when offered.
 - Shops: scan relics first, then card removal, then potions, then cards. Don't overspend into a weak buy.

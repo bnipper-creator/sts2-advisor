@@ -137,7 +137,9 @@ def _reference_line(opt: dict, ds: Dataset) -> str:
             rarity = entry.get("rarity", opt.get("rarity", ""))
             tags = entry.get("tags") or []
             tagstr = f", tags: {', '.join(tags)}" if tags else ""
-            head = f"- CARD {name} [{ctype} {rarity}, cost {cost}{tagstr}]"
+            colorless = str(entry.get("color", "")).lower() == "colorless"
+            clstr = ", COLORLESS" if colorless else ""
+            head = f"- CARD {name} [{ctype} {rarity}, cost {cost}{clstr}{tagstr}]"
             if opt.get("is_upgraded") and up:
                 return f"{head} (UPGRADED): {up}"
             line = f"{head}: {base}"
