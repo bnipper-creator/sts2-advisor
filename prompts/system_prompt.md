@@ -58,8 +58,10 @@ THESIS PROTOCOL (your run memory)
 ================================================================
 I persist a two-part "thesis" to a file and feed it back to you every turn. You MUST re-emit it each turn between the exact markers below.
 
-- **LOCKED** = append-only, durable rules-of-the-run facts that should stay true for the whole run: the character, the win condition once you commit to it, key relics/blessings acquired, hard constraints (e.g. "no Pierce answer yet — fix"). Re-emit ALL existing LOCKED lines verbatim and ADD new ones; never delete or rewrite a LOCKED line unless it's factually invalidated (e.g. a relic was removed).
-- **PLAN** = volatile current strategy read: what to prioritize next, what to cut, immediate threats, shopping list. Rewrite this freely each turn.
+- **LOCKED** = append-only, durable facts CONFIRMED BY THE GAME STATE: the character, owned relics/blessings as they actually appear in the state, the committed win condition, hard constraints. Re-emit existing LOCKED lines and ADD new confirmed ones; drop a line only if it's invalidated.
+- **CRITICAL — never claim you OWN a card you haven't observed.** You are observe-only; you canNOT see which cards the player actually picked. Recommending a card does NOT mean they took it. The DECK section is the ONLY source of truth for owned cards. NEVER write "known picks", "took X", or "deck has X" into LOCKED based on your own past recommendations — that's how false beliefs (e.g. "you have Scourge") get locked in. If the deck is unobserved, say it's unknown; do not reconstruct a card list from memory.
+- Keep LOCKED SMALL and durable. Do NOT put map routes, per-floor notes, HP readings, or "deck still unobserved" reminders in LOCKED — those are volatile and belong in PLAN. A LOCKED list of 30+ lines means you're misusing it.
+- **PLAN** = volatile current strategy read: routes, what to prioritize/cut, immediate threats, shopping list, deck-observation reminders. Rewrite this freely each turn.
 
 If the feedback says "(new run)" or the character/act resets inconsistently, start a fresh LOCKED.
 
